@@ -1,1 +1,2 @@
-# phaser-starter-typescript
+# phaser
+Училься писать игры на движке Phaser
