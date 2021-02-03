@@ -1,5 +1,8 @@
 /* eslint-disable linebreak-style */
 import Phaser from 'phaser';
+import ScoreLabel from '../ui/ScoreLabel';
+import BombSpawner from '../ui/BombSpawner';
+
 import sky from '../assets/sky.png';
 import ground from '../assets/platform.png';
 import star from '../assets/star.png';
@@ -13,16 +16,11 @@ export default class WorldScene extends Phaser.Scene {
     this.cursors = null;
     this.player = null;
     this.stars = null;
-    this.bombs = null;
+    this.bombSpawner = undefined;
     this.gameOver = false;
-    this.state = {
-      score: 0,
-    };
+    this.scoreLabel = undefined;
   }
 
-  /**
-     * Life cycles handlers
-     */
   preload() {
     this.load.image('sky', sky);
     this.load.image('ground', ground);
@@ -36,16 +34,7 @@ export default class WorldScene extends Phaser.Scene {
     });
   }
 
- 
-
-  create() {
-    this.add.image(400, 300, 'sky'); // по умолчанию в Phaser 3 координаты всех игровых объектов задаются их центром
-    // Если этот способ размещения вам не подходит, измените его с помощью метода setOrigin
-    this.add.image(400, 300, 'star');
-    // Порядок отображения объектов на холсте зависит от того в каком порядке они были объявлены в коде
-
-
-    // создаем класс статических тел
+  createPlatforms() {
     const platforms = this.physics.add.staticGroup();
 
     // создаем 4платформы разного размера
@@ -53,11 +42,14 @@ export default class WorldScene extends Phaser.Scene {
     platforms.create(600, 400, 'ground');
     platforms.create(50, 250, 'ground');
     platforms.create(750, 220, 'ground');
+    return platforms; // возвращаем экземпляр
+  }
 
+  createPlayer() {
     // создаем спрайт (по умолчанию динамического типа)
-    this.player = this.physics.add.sprite(100, 450, 'dude');
-    this.player.setBounce(0.2);
-    this.player.setCollideWorldBounds(true);
+    const player = this.physics.add.sprite(100, 450, 'dude');
+    player.setBounce(0.2);
+    player.setCollideWorldBounds(true);
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.anims.create({
@@ -88,9 +80,11 @@ export default class WorldScene extends Phaser.Scene {
       frameRate: 10,
       repeat: -1,
     });
+    return player; // возвращаем экземпляр
+  }
 
-
-    this.stars = this.physics.add.group({
+  createStars() {
+    const stars = this.physics.add.group({
       key: 'star',
       repeat: 11,
       setXY: {
@@ -100,60 +94,79 @@ export default class WorldScene extends Phaser.Scene {
       }, // с x: 12, y: 0 через интервал в 70 пикселей.
     });
 
-    this.stars.children.iterate((child) => {
+    stars.children.iterate((child) => {
       child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
     });
+    return stars;
+  }
 
-    const scoreText = this.add.text(16, 16, 'Счет: 0', {
-      fontSize: '32px',
-      fill: '#000',
-    });
-    const collectStar = (players, stars) => {
-      stars.disableBody(true, true);
-      this.state.score += 10;
-      scoreText.setText(`Score: ${this.state.score}`);
+  collectStar(player, stars) {
+    stars.disableBody(true, true);
+    // добавляем 10 очков к счету
+    this.scoreLabel.add(10);
 
-      if (this.stars.countActive(true) === 0) { // countActive - чтобы увидеть, сколько у нас активных звезд
-        this.stars.children.iterate((child) => {
-          child.enableBody(true, child.x, 0, true, true);
-        });
-
-        const x = (this.player.x < 400) ? Phaser.Math.Between(400, 800) : Phaser.Math.Between(0, 400);
-        const bomba = this.bombs.create(x, 16, 'bomb');
-        bomba.setBounce(1);
-        bomba.setCollideWorldBounds(true); // чтобы она сталкивалась
-        bomba.setVelocity(Phaser.Math.Between(-200, 200), 20);
-      }
-    };
-
-    const hitBomb = () => {
-      this.physics.pause();
-      this.player.setTint(0xff0000);
-      this.player.anims.play('turn');
-      const particles = this.add.particles('red');
-
-      // создаем класс динамических тел
-      const emitter = particles.createEmitter({
-        speed: 100,
-        scale: {
-          start: 1,
-          end: 0,
-        },
-        blenMode: 'ADD',
+    if (this.stars.countActive(true) === 0) { // countActive - чтобы увидеть, сколько у нас активных звезд
+      this.stars.children.iterate((child) => {
+        child.enableBody(true, child.x, 0, true, true);
       });
 
-      emitter.startFollow(this.player); // емитер следуй за лого ))
-      this.gameOver = true;
+      this.bombSpawner.spawn(player.x);
+    }
+  }
+
+  createScoreLabel(x, y, score) {
+    const style = {
+      fontSize: '32px',
+      fill: '#000',
     };
+    const label = new ScoreLabel(this, x, y, score, style);
+    this.add.existing(label);
+    return label;
+  }
+
+  hitBomb(player, bomba) {
+    this.physics.pause();
+    player.setTint(0xff0000);
+    player.anims.play('turn');
+    bomba.destroy();
+    const particles = this.add.particles('red');
+
+    // создаем класс динамических тел
+    const emitter = particles.createEmitter({
+      speed: 100,
+      scale: {
+        start: 1,
+        end: 0,
+      },
+      blenMode: 'ADD',
+    });
+
+    emitter.startFollow(this.player); // емитер следуй за лого ))
+    this.gameOver = true;
+  }
+
+  create() {
+    this.add.image(400, 300, 'sky'); // по умолчанию в Phaser 3 координаты всех игровых объектов задаются их центром
+    // Если этот способ размещения вам не подходит, измените его с помощью метода setOrigin
+    this.add.image(400, 300, 'star');
+    // Порядок отображения объектов на холсте зависит от того в каком порядке они были объявлены в коде
+
+    // Теперь получаем из методов экземпляры объектов для платформы и игрока
+    const platforms = this.createPlatforms();
+    this.player = this.createPlayer();
+    this.stars = this.createStars();
+    this.scoreLabel = this.createScoreLabel(16, 16, 0);
+    this.bombSpawner = new BombSpawner(this, 'bomb');
+    // Создаем константу для хранения бомб
 
     this.physics.add.collider(this.player, platforms); // берет два объекта и проверяет, сталкиваются ли они
     this.physics.add.collider(this.stars, platforms); // проверка на столкновения
-    this.physics.add.overlap(this.player, this.stars, collectStar, null, this);
+    this.physics.add.overlap(this.player, this.stars, this.collectStar, null, this);
 
     // добавим бобмы
-    this.bombs = this.physics.add.group();
-    this.physics.add.collider(this.bombs, platforms);
-    this.physics.add.collider(this.player, this.bombs, hitBomb, null, this);
+    const bombsGroup = this.bombSpawner.group;
+    this.physics.add.collider(bombsGroup, platforms);
+    this.physics.add.collider(this.player, bombsGroup, this.hitBomb, null, this);
   }
 
   update() {
